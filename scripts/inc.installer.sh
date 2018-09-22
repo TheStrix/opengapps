@@ -705,11 +705,51 @@ nogooglepackageinstaller_removal_msg="NOTE: The Stock/AOSP Package Installer is 
 nogoogletag_removal_msg="NOTE: The Stock/AOSP NFC Tag is not available on your\nROM (anymore), the Google equivalent will not be removed."
 nogooglewebview_removal_msg="NOTE: The Stock/AOSP WebView is not available on your\nROM (anymore), not all Google WebViewProviders will be removed."
 
+ui_print() {
+  echo "ui_print $1" > "$OUTFD";
+  echo "ui_print" > "$OUTFD";
+}
+
+# _____________________________________________________________________________________________________________________
+#                                                  Begin GApps Installation
+ui_print " ";
+ui_print '##############################';
+ui_print '  _____   _____   ___   ____  ';
+ui_print ' /  _  \ |  __ \ / _ \ |  _ \ ';
+ui_print '|  / \  || |__) | |_| || | \ \';
+ui_print '| |   | ||  ___/|  __/ | | | |';
+ui_print '|  \ /  || |    \ |__  | | | |';
+ui_print ' \_/ \_/ |_|     \___| |_| |_|';
+ui_print '       ___   _   ___ ___  ___ ';
+ui_print '      / __| /_\ | _ \ _ \/ __|';
+ui_print '     | (_ |/ _ \|  _/  _/\__ \';
+ui_print '      \___/_/ \_\_| |_|  |___/';
+ui_print '##############################';
+ui_print " ";
+ui_print "$installer_name$gapps_version";
+ui_print " ";
+mounts=""
+for p in "/cache" "/data" "/persist" "/system" "/vendor"; do
+  if [ -d "$p" ] && grep -q "$p" "/etc/fstab" && ! mountpoint -q "$p"; then
+    mounts="$mounts $p"
+  fi
+done
+ui_print "- Mounting $mounts";
+ui_print " ";
+set_progress 0.01;
+for m in $mounts; do
+  mount "$m"
+done
+grep -q "/system.*\sro[\s,]" /proc/mounts && mount -o remount,rw /system  # remount /system, sometimes necessary if mounted read-only
+
 # _____________________________________________________________________________________________________________________
 #                      Detect A/B partition layout https://source.android.com/devices/tech/ota/ab_updates
 if [ -n "$(cat /proc/cmdline | grep slot_suffix)" ];
 then
   device_abpartition=true
+  SYSTEM=/system/system
+elif [ "$(cat /system/system/build.prop | grep ro.build.system_root_image | awk -F '=' '{print $2}')" = "true" ]; then
+  device_abpartition=false
   SYSTEM=/system/system
 else
   device_abpartition=false
@@ -1107,11 +1147,6 @@ sys_app() {
   return 1;
 }
 
-ui_print() {
-  echo "ui_print $1" > "$OUTFD";
-  echo "ui_print" > "$OUTFD";
-}
-
 which_dpi() {
   # Calculate available densities
   app_densities="";
@@ -1169,37 +1204,6 @@ fi
 # Get GApps Version and GApps Type from g.prop extracted at top of script
 gapps_version=$(get_file_prop "$TMP/g.prop" "ro.addon.open_version")
 gapps_type=$(get_file_prop "$TMP/g.prop" "ro.addon.open_type")
-# _____________________________________________________________________________________________________________________
-#                                                  Begin GApps Installation
-ui_print " ";
-ui_print '##############################';
-ui_print '  _____   _____   ___   ____  ';
-ui_print ' /  _  \ |  __ \ / _ \ |  _ \ ';
-ui_print '|  / \  || |__) | |_| || | \ \';
-ui_print '| |   | ||  ___/|  __/ | | | |';
-ui_print '|  \ /  || |    \ |__  | | | |';
-ui_print ' \_/ \_/ |_|     \___| |_| |_|';
-ui_print '       ___   _   ___ ___  ___ ';
-ui_print '      / __| /_\ | _ \ _ \/ __|';
-ui_print '     | (_ |/ _ \|  _/  _/\__ \';
-ui_print '      \___/_/ \_\_| |_|  |___/';
-ui_print '##############################';
-ui_print " ";
-ui_print "$installer_name$gapps_version";
-ui_print " ";
-mounts=""
-for p in "/cache" "/data" "/persist" "/system" "/vendor"; do
-  if [ -d "$p" ] && grep -q "$p" "/etc/fstab" && ! mountpoint -q "$p"; then
-    mounts="$mounts $p"
-  fi
-done
-ui_print "- Mounting $mounts";
-ui_print " ";
-set_progress 0.01;
-for m in $mounts; do
-  mount "$m"
-done
-grep -q "/system.*\sro[\s,]" /proc/mounts && mount -o remount,rw /system  # remount /system, sometimes necessary if mounted read-only
 
 # _____________________________________________________________________________________________________________________
 #                                                  Gather Device & GApps Package Information
@@ -2424,7 +2428,7 @@ for reqdapp_name in $reqd_list; do
 done;
 
 # Create final addon.d script in system
-bkup_header="#!/sbin/sh\n# \n# ADDOND_VERSION=2\n# \n# $SYSTEM/addon.d/70-gapps.sh\n#\n. /tmp/backuptool.functions\n\nif [ -z \$backuptool_ab ]; then\n  SYS="/system"\n  TMP="/temp"\nelse\n  SYS="/postinstall/system"\n  TMP="/postinstall/temp"\nfi\n\nlist_files() {\ncat <<EOF"
+bkup_header="#!/sbin/sh\n# \n# ADDOND_VERSION=2\n# \n# $SYSTEM/addon.d/70-gapps.sh\n#\n. /tmp/backuptool.functions\n\nif [ \$backuptool_ab ]; then\n  SYS="/postinstall/system"\n  TMP="/postinstall/temp"\nelif [ \$backuptool_systemasroot ]; then\n  SYS="/system_image/system"\n  TMP="/temp"\nelse\n  SYS="/system"\n  TMP="/temp"\nfi\n\nlist_files() {\ncat <<EOF"
 bkup_list="$bkup_list"$'\n'"etc/g.prop"; # add g.prop to backup list
 bkup_list=$(echo "${bkup_list}" | sort -u| sed '/^$/d'); # sort list & remove duplicates and empty lines
 install -d $SYSTEM/addon.d;
